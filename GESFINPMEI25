@@ -1,0 +1,109 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+import os
+
+# --- Définir le fichier Excel ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+fichier_excel = os.path.join(BASE_DIR, "transactions_streamlit.xlsx")
+
+# --- Charger ou créer fichier Excel ---
+if os.path.exists(fichier_excel):
+    transactions = pd.read_excel(fichier_excel)
+else:
+    transactions = pd.DataFrame(columns=["Compte", "Date", "Type", "Montant", "Categorie"])
+    transactions.to_excel(fichier_excel, index=False)
+
+SEUIL_SOLDE = 1000
+
+st.set_page_config(page_title="Gestion Financière PME", layout="wide")
+st.title("💰 Gestion Financière PME - Mobile/PC")
+
+# --- Ajouter transaction ---
+st.header("Ajouter une transaction")
+with st.form("ajouter_transaction"):
+    compte = st.text_input("Compte")
+    date = st.text_input("Date (AAAA-MM-JJ)")
+    type_trans = st.radio("Type", ["Entrée", "Sortie"], horizontal=True)
+    montant = st.text_input("Montant (F CFA)")
+    categorie = st.text_input("Catégorie")
+    submitted = st.form_submit_button("Ajouter")
+
+    if submitted:
+        if not compte or not date or not montant or not categorie:
+            st.warning("Tous les champs doivent être remplis !")
+        else:
+            try:
+                montant = float(montant)
+                transactions.loc[len(transactions)] = [compte, date, type_trans, montant, categorie]
+                transactions.to_excel(fichier_excel, index=False)
+                st.success("✅ Transaction ajoutée avec succès !")
+            except ValueError:
+                st.error("Le montant doit être un nombre !")
+
+# --- Filtres ---
+st.header("Filtrer les transactions")
+col1, col2 = st.columns(2)
+with col1:
+    mois = st.text_input("Filtrer par mois (AAAA-MM)")
+with col2:
+    categorie_filtre = st.text_input("Filtrer par catégorie")
+
+df = transactions.copy()
+if mois:
+    df = df[df["Date"].str.startswith(mois)]
+if categorie_filtre:
+    df = df[df["Categorie"].str.contains(categorie_filtre, case=False)]
+
+# --- Calcul solde ---
+df["MontantNet"] = df.apply(lambda r: r["Montant"] if r["Type"]=="Entrée" else -r["Montant"], axis=1)
+solde_total = df["MontantNet"].sum()
+st.subheader(f"Solde total: {solde_total:.2f} F CFA")
+
+# --- Tableau transactions ---
+st.subheader("📊 Transactions")
+st.dataframe(df, use_container_width=True)
+
+# --- Solde par compte ---
+st.subheader("💼 Solde par compte")
+solde_par_compte = df.groupby("Compte")["MontantNet"].sum().reset_index()
+st.dataframe(solde_par_compte, use_container_width=True)
+
+# --- Graphique top catégories ---
+st.subheader("📈 Top catégories")
+fig, ax = plt.subplots()
+top_categories = df.groupby("Categorie")["MontantNet"].sum().sort_values(ascending=False)
+couleurs = ["green" if x>=0 else "red" for x in top_categories]
+top_categories.plot(kind="bar", color=couleurs, ax=ax)
+ax.set_ylabel("Montant Net (F CFA)")
+st.pyplot(fig)
+
+# --- Alertes ---
+alerts = [f"⚠️ Solde faible: {row['Compte']}" for _, row in solde_par_compte.iterrows() if row["MontantNet"] < SEUIL_SOLDE]
+if alerts:
+    st.error(", ".join(alerts))
+
+# --- Export PDF ---
+st.header("📄 Exporter PDF")
+if st.button("Exporter PDF global"):
+    pdf_file = os.path.join(BASE_DIR, "rapport_financier_streamlit.pdf")
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "Rapport Financier PME", ln=True, align='C')
+    pdf.set_font("Arial", '', 12)
+    pdf.ln(5)
+    pdf.cell(0, 10, f"Solde total: {solde_total:.2f} F CFA", ln=True)
+    pdf.ln(5)
+    for _, row in df.iterrows():
+        pdf.cell(0, 8, f"{row['Compte']} | {row['Date']} | {row['Type']} | {row['Montant']} F CFA | {row['Categorie']}", ln=True)
+    pdf.output(pdf_file)
+    st.success(f"✅ Rapport exporté dans {pdf_file}")
+transactions_streamlit.xlsx
+streamlit
+pandas
+matplotlib
+fpdf
+openpyxl
+
